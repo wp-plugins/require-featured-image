@@ -4,8 +4,9 @@ Plugin Name: Require Featured Image
 Plugin URI: http://pressupinc.com/wordpress-plugins/require-featured-image/
 Description: Like it says on the tin: requires posts to have a featured image set before they'll be published.
 Author: Press Up
-Version: 0.5.0
+Version: 0.6.1
 Author URI: http://pressupinc.com
+Text Domain: require-featured-image
 */ 
 
 require_once('admin-options.php');
@@ -15,25 +16,36 @@ function rfi_set_default_on_activation() {
     add_option( 'rfi_post_types', array('post') );
 }
 
+function rfi_textdomain_init() {
+  load_plugin_textdomain( 'require-featured-image', false, dirname( plugin_basename( __FILE__ ) ).'/lang' ); 
+}
+add_action( 'plugins_loaded', 'rfi_textdomain_init' );
 
-add_action( 'pre_post_update', 'rfi_guard_against_publish' );
-function rfi_guard_against_publish( $post_ID ) {
-    if ( !rfi_should_let_id_publish( $post_ID ) ) {
-        wp_die( 'You cannot publish without a featured image.' );
+
+add_action( 'transition_post_status', 'rfi_dont_publish_post', 10, 3 );
+function rfi_dont_publish_post( $new_status, $old_status, $post ) {
+    if ( $new_status === 'publish' && !rfi_should_let_id_publish( $post ) ) {
+        wp_die( __( 'You cannot publish without a featured image.', 'require-featured-image' ) );
     }
 }
-
 
 add_action( 'admin_enqueue_scripts', 'rfi_enqueue_edit_screen_js' );
 function rfi_enqueue_edit_screen_js( $hook ) {
 
     global $post;
-	if ( $hook != 'post.php' && $hook != 'post-new.php' )
+	if ( $hook !== 'post.php' && $hook !== 'post-new.php' )
         return;
 
     if ( in_array( $post->post_type, rfi_return_post_types() ) ) {
         wp_register_script( 'rfi-admin-js', plugins_url( '/require-featured-image-on-edit.js', __FILE__ ), array( 'jquery' ) );
         wp_enqueue_script( 'rfi-admin-js' );
+        wp_localize_script(
+            'rfi-admin-js',
+            'objectL10n',
+            array(
+                'jsWarningHtml' => __( '<strong>This entry has no featured image.</strong> Please set one. You need to set a featured image before publishing.', 'require-featured-image' ),
+            )
+        );
     }
 }
 
@@ -58,17 +70,6 @@ function rfi_return_post_types_option() {
     return $option;
 }
 
-function rfi_should_let_id_publish( $post_ID ) {
-    $post = get_post( $post_ID );
-    
-    // Incredible HACKERY because I can't find a hook that does what I want, or where
-    $request_publish_test = isset($_REQUEST['publish']);
-    $request_under_status_test = isset($_REQUEST['_status']) && $_REQUEST['_status'] == 'publish';
-    $are_trying_to_publish = ( $request_publish_test || $request_under_status_test );
-
-    return !( 
-        in_array( $post->post_type, rfi_return_post_types() )
-        && $are_trying_to_publish 
-        && !has_post_thumbnail( $post_ID ) 
-    );
+function rfi_should_let_id_publish( $post ) {
+    return !( in_array( $post->post_type, rfi_return_post_types() ) && !has_post_thumbnail( $post->ID ) );
 }
